@@ -1,6 +1,8 @@
 *.o
 *.out
 
+.vscode/
+
 day01/pass_by_value
 day01/pass_by_pointer
 day01/pass_by_reference
