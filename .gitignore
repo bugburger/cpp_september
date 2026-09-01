@@ -1,0 +1,9 @@
+*.o
+*.out
+
+day01/pass_by_value
+day01/pass_by_pointer
+day01/pass_by_reference
+day01/pass_compare
+day01/leetcode_704
+day01/pointer_test
