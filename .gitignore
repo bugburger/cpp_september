@@ -10,3 +10,18 @@ day01/pass_by_reference
 day01/pass_compare
 day01/leetcode_704
 day01/pointer_test
+
+# Day 05 executable files
+day05/deep_copy
+day05/deep_copy_practice
+day05/shallow_copy_bug
+day05/spiral_matrix
+
+# Day 06 executable files
+day06/raii_file_practice
+day06/linked_list_basic
+day06/remove_elements
+
+# Day 06 generated text files
+day06/raii_output.txt
+day06/scope_output.txt
