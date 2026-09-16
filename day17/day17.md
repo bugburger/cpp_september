@@ -1,17 +1,38 @@
-Day17 学习总结
+# Day17 学习总结
 
-今日学习内容
+## 今日学习内容
 
-今天主要学习了 Linux/C++ 工程中的静态库与动态库，使用同一套 calculator 代码分别生成 .a 和 .so，并通过 file、ar、nm、ldd 以及临时移走动态库的实验，验证两种链接方式在构建阶段和运行阶段的区别。
+今天主要学习了 Linux/C++ 工程中的静态库与动态库，使用同一套 `calculator` 源代码分别生成静态库 `.a` 和动态库 `.so`，并通过实际运行、`file`、`ar`、`nm`、`ldd` 以及临时移走动态库等方式，验证两种链接方式的区别。
 
-算法部分完成了 LeetCode 344「反转字符串」，使用双指针在原数组上交换字符。
+算法部分完成了 LeetCode 344「反转字符串」，学习了使用双指针在原数组上交换字符。
 
-一、库的作用
+---
 
-当多个程序都要使用同一组函数时，可以把函数声明放在头文件中，把实现编译成库，再由不同程序链接该库。这样可以复用代码，并把“库的实现”和“程序的使用方式”分开。
+## 一、为什么需要库
 
-本次工程使用同一套源代码：
+在实际项目中，多个程序可能需要使用相同的函数。
 
+例如，加法和减法函数可能会被多个程序调用：
+
+```cpp
+int add(int a, int b);
+int subtract(int a, int b);
+```
+
+如果每个程序都重复编写这些函数，会产生大量重复代码。
+
+更合理的做法是：
+
+1. 把函数声明放进头文件；
+2. 把函数实现放进源文件；
+3. 将源文件编译成库；
+4. 其他程序通过链接库使用这些函数。
+
+库可以实现代码复用，并将“接口”和“实现”分离。
+
+本次工程的大致目录如下：
+
+```text
 day17/
 ├── day17.md
 ├── reverse_string.cpp
@@ -23,279 +44,634 @@ day17/
     │   └── calculator.cpp
     ├── examples/
     │   └── main.cpp
-    └── build/                 # 构建目录，不提交 GitHub
+    └── build/
+```
 
-calculator.hpp 负责声明接口：
+其中：
 
-int add(int a, int b);
-int subtract(int a, int b);
+- `calculator.hpp`：声明函数接口；
+- `calculator.cpp`：实现加法和减法；
+- `main.cpp`：调用库中的函数；
+- `CMakeLists.txt`：描述工程的构建方式；
+- `build/`：保存编译产生的文件，不上传 GitHub。
 
-calculator.cpp 负责实现接口，examples/main.cpp 通过头文件调用两个函数。示例中 a = 20、b = 10，最终输出：
+---
 
-add = 30
-subtract = 10
+## 二、静态库
 
-二、静态库 .a
+### 1. 什么是静态库
 
-Linux 中静态库通常以 .a 结尾。本次通过 CMake 创建静态库：
+Linux 中的静态库通常以 `.a` 结尾，例如：
 
-add_library(
-    calculator_static
-    STATIC
-    src/calculator.cpp
-)
+```text
+libcalculator.a
+```
 
-形成过程可以理解为：
+静态链接时，链接器会从静态库中取出程序需要的目标代码，并放入最终的可执行文件。
 
+可以理解为：
+
+```text
 calculator.cpp
       ↓ 编译
 calculator.cpp.o
       ↓ 归档
 libcalculator.a
+      ↓ 静态链接
+static_demo
+```
 
-静态链接时，链接器会从 .a 中取出程序需要的目标代码，放入最终可执行文件。因此程序构建完成后，运行时通常不再需要原来的 .a 文件。
+程序完成静态链接以后，运行时通常不再需要原来的 `.a` 文件，因为需要的代码已经进入了可执行文件。
 
-本次使用以下命令验证静态库：
+---
 
+### 2. 使用 CMake 创建静态库
+
+```cmake
+add_library(
+    calculator_static
+    STATIC
+    src/calculator.cpp
+)
+```
+
+其中：
+
+- `add_library`：创建一个库目标；
+- `calculator_static`：CMake 内部使用的目标名；
+- `STATIC`：表示创建静态库；
+- `src/calculator.cpp`：参与编译的源文件。
+
+最终可以生成：
+
+```text
+libcalculator.a
+```
+
+---
+
+### 3. 查看静态库信息
+
+可以使用以下命令检查静态库：
+
+```bash
 file libcalculator.a
+```
+
+`file` 用于判断文件类型。静态库通常会显示为：
+
+```text
+current ar archive
+```
+
+查看静态库中包含的目标文件：
+
+```bash
 ar -t libcalculator.a
+```
+
+可能看到：
+
+```text
+calculator.cpp.o
+```
+
+查看库中包含的符号：
+
+```bash
 nm -C libcalculator.a
+```
 
-file 显示它是 current ar archive。
+其中：
 
-ar -t 查看归档中包含的目标文件，本次能看到 calculator.cpp.o。
+- `nm`：查看目标文件或库中的符号；
+- `-C`：将经过 C++ 名字修饰的符号恢复成便于阅读的函数名。
 
-nm -C 查看库中的符号，-C 会把 C++ 名字修饰后的符号还原成较易阅读的函数名。
+---
 
-三、动态库 .so
+## 三、动态库
 
-Linux 中动态库也叫共享库，通常以 .so 结尾。本次通过 CMake 创建动态库：
+### 1. 什么是动态库
 
+Linux 中的动态库也叫共享库，通常以 `.so` 结尾，例如：
+
+```text
+libcalculator.so
+```
+
+动态链接时，函数代码不会完整复制进当前可执行文件。程序运行时，动态加载器需要找到对应的 `.so` 文件。
+
+因此，使用动态库的程序通常同时依赖：
+
+```text
+可执行程序 + 动态库
+```
+
+如果运行时找不到需要的动态库，程序就可能无法启动。
+
+---
+
+### 2. 使用 CMake 创建动态库
+
+```cmake
 add_library(
     calculator_shared
     SHARED
     src/calculator.cpp
 )
+```
 
-file libcalculator.so 显示其类型为 ELF shared object。与静态链接不同，链接动态库的程序会保留对 .so 的运行时依赖。程序启动时，动态加载器需要找到对应的共享库，程序才能正常运行。
+其中：
 
-使用下面的命令可以检查可执行文件的动态依赖：
+- `SHARED`：表示创建动态库；
+- 最终生成的文件通常为 `libcalculator.so`。
 
-ldd ./static_demo
-ldd ./shared_demo
+查看动态库类型：
 
-实际观察结果：
+```bash
+file libcalculator.so
+```
 
-static_demo 的依赖列表中没有 libcalculator.so。
+通常会显示它是 ELF shared object。
 
-shared_demo 明确依赖构建目录中的 libcalculator.so。
+---
 
-static_demo 仍可能依赖 libstdc++.so、libc.so 等系统动态库。这不代表 calculator 静态链接失败，只说明程序的其他系统组件仍采用动态链接。
+## 四、配置头文件搜索路径
 
-四、CMake 中的关键写法
+头文件位于 `include/` 目录中，因此需要告诉编译器去哪里寻找头文件：
 
-1. STATIC 与 SHARED
-
-add_library(calculator_static STATIC src/calculator.cpp)
-add_library(calculator_shared SHARED src/calculator.cpp)
-
-STATIC 生成静态库。
-
-SHARED 生成动态库。
-
-2. 公开头文件目录
-
+```cmake
 target_include_directories(
     calculator_static
     PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-PUBLIC 表示库自身编译时需要该目录，链接这个库的目标也会继承该头文件搜索路径。因此 static_demo 和 shared_demo 不需要重复配置 include/。
+target_include_directories(
+    calculator_shared
+    PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+```
 
-3. 设置输出文件名
+这里的 `PUBLIC` 表示：
 
+1. 库本身在编译时需要这个头文件目录；
+2. 链接该库的其他目标也会继承这个目录。
+
+因此，链接该库的可执行程序不需要再次重复配置头文件路径。
+
+---
+
+## 五、设置库的输出名称
+
+CMake 中的目标名不能重复，因此分别使用：
+
+```text
+calculator_static
+calculator_shared
+```
+
+但是可以将最终输出名称都设置成 `calculator`：
+
+```cmake
 set_target_properties(
     calculator_static
     PROPERTIES
     OUTPUT_NAME calculator
 )
 
-CMake 的目标名分别是 calculator_static 和 calculator_shared，用来保证目标唯一；通过相同的 OUTPUT_NAME calculator，最终可以生成符合 Linux 命名习惯的：
+set_target_properties(
+    calculator_shared
+    PROPERTIES
+    OUTPUT_NAME calculator
+)
+```
 
+最终分别生成：
+
+```text
 libcalculator.a
 libcalculator.so
+```
 
-4. 链接可执行程序
+CMake 内部目标名与最终文件名是两个不同的概念：
 
-target_link_libraries(static_demo PRIVATE calculator_static)
-target_link_libraries(shared_demo PRIVATE calculator_shared)
+- 目标名必须唯一；
+- 输出文件名可以通过属性修改。
 
-这里的 PRIVATE 表示链接依赖只属于当前可执行目标，不需要继续向下传播。
+---
 
-五、构建与验证过程
+## 六、链接可执行程序
 
-采用 out-of-source build，把 CMake 生成文件和编译产物集中放入 build/：
+创建可执行程序：
 
-cd ~/cpp_september/day17/static_dynamic_lib/build
+```cmake
+add_executable(
+    static_demo
+    examples/main.cpp
+)
+
+add_executable(
+    shared_demo
+    examples/main.cpp
+)
+```
+
+分别链接静态库和动态库：
+
+```cmake
+target_link_libraries(
+    static_demo
+    PRIVATE
+    calculator_static
+)
+
+target_link_libraries(
+    shared_demo
+    PRIVATE
+    calculator_shared
+)
+```
+
+其中：
+
+- `static_demo` 链接静态库；
+- `shared_demo` 链接动态库；
+- `PRIVATE` 表示该链接关系只属于当前可执行目标，不继续向其他目标传播。
+
+---
+
+## 七、使用 CMake 构建工程
+
+进入项目目录：
+
+```bash
+cd ~/cpp_september/day17/static_dynamic_lib
+```
+
+创建独立的构建目录：
+
+```bash
+mkdir -p build
+cd build
+```
+
+生成构建文件：
+
+```bash
 cmake ..
+```
+
+执行编译：
+
+```bash
 cmake --build .
+```
 
-生成的核心文件为：
+构建完成后，可以得到：
 
+```text
 libcalculator.a
 libcalculator.so
 static_demo
 shared_demo
+```
 
-两个程序运行结果相同，但取得函数实现的方式不同：
+使用独立的 `build/` 目录叫作 out-of-source build。
 
-static_demo 在链接阶段获得所需代码。
+优点是：
 
-shared_demo 在运行阶段加载 libcalculator.so。
+- 源代码目录更加整洁；
+- 编译产物集中存放；
+- 清理项目时只需删除 `build/`；
+- 不容易把构建产物误上传到 GitHub。
 
-六、移走 .so 的对照实验
+---
 
-为了直观验证运行时依赖，临时把动态库改名：
+## 八、运行程序
 
+运行静态链接版本：
+
+```bash
+./static_demo
+```
+
+运行动态链接版本：
+
+```bash
+./shared_demo
+```
+
+示例输出：
+
+```text
+add = 30
+subtract = 10
+```
+
+虽然两个程序的运行结果相同，但是获得函数实现的方式不同：
+
+- `static_demo` 在链接阶段获得函数代码；
+- `shared_demo` 在运行阶段加载共享库。
+
+---
+
+## 九、使用 ldd 检查动态依赖
+
+检查静态版本：
+
+```bash
+ldd ./static_demo
+```
+
+检查动态版本：
+
+```bash
+ldd ./shared_demo
+```
+
+观察结果：
+
+- `static_demo` 的依赖中没有 `libcalculator.so`；
+- `shared_demo` 明确依赖 `libcalculator.so`。
+
+需要注意，`static_demo` 仍然可能依赖：
+
+```text
+libstdc++.so
+libc.so
+libm.so
+```
+
+这是正常现象。
+
+本次所谓“静态链接”，指的是 `calculator` 这部分代码采用静态链接，并不表示整个程序的所有系统库都采用静态链接。
+
+---
+
+## 十、移走动态库的对照实验
+
+为了验证程序是否依赖动态库，可以临时移动 `.so` 文件：
+
+```bash
 mv libcalculator.so libcalculator.so.backup
+```
+
+然后分别运行：
+
+```bash
 ./static_demo
 ./shared_demo
+```
 
 实验结果：
 
-static_demo 仍能正常运行，因为需要的 calculator 代码已经进入可执行文件。
+- `static_demo` 仍然可以运行；
+- `shared_demo` 无法正常启动；
+- 系统提示找不到 `libcalculator.so`。
 
-shared_demo 无法启动，并提示找不到 libcalculator.so，因为它在运行时仍依赖该共享库。
+原因是：
 
-实验完成后恢复文件：
+- 静态版本需要的代码已经进入可执行文件；
+- 动态版本在运行时仍然需要加载 `.so`。
 
+实验完成后恢复动态库：
+
+```bash
 mv libcalculator.so.backup libcalculator.so
+```
+
+再次运行：
+
+```bash
 ./shared_demo
+```
 
-这个实验是理解 .a 与 .so 区别最直接的证据。
+程序恢复正常。
 
-七、静态库与动态库对比
+这个实验直观证明了静态链接和动态链接在运行阶段的区别。
 
-对比项
+---
 
-静态库 .a
+## 十一、静态库与动态库对比
 
-动态库 .so
+| 对比项 | 静态库 `.a` | 动态库 `.so` |
+|---|---|---|
+| 英文名称 | Static Library | Shared Library |
+| 链接方式 | 需要的代码进入可执行文件 | 可执行文件记录动态库依赖 |
+| 运行时依赖 | 通常不再需要原 `.a` | 必须能找到对应 `.so` |
+| 可执行文件 | 通常相对较大 | 通常相对较小 |
+| 多程序共享 | 每个程序可能包含一份代码 | 多个程序可以共享同一个库 |
+| 部署方式 | 相对简单 | 需要一起部署动态库 |
+| 更新方式 | 库变化后通常重新链接 | ABI 兼容时可以替换动态库 |
+| 常见问题 | 可执行文件较大 | 找不到库、版本不兼容 |
 
-英文
+动态库并不是任何时候都可以直接替换，还需要考虑：
 
-Static Library
+- 函数接口是否发生改变；
+- ABI 是否兼容；
+- 动态库版本是否匹配；
+- SONAME 是否正确；
+- 运行时搜索路径是否正确。
 
-Shared Library
+---
 
-链接方式
+## 十二、LeetCode 344：反转字符串
 
-所需代码在链接阶段进入可执行文件
+### 1. 题目要求
 
-可执行文件保留共享库依赖
+给定一个字符数组，将其中的字符原地反转。
 
-运行时
+例如：
 
-通常不再需要原 .a
+```text
+输入：['h','e','l','l','o']
+输出：['o','l','l','e','h']
+```
 
-必须能找到对应 .so
+题目要求原地修改数组，不能额外创建一个同样大小的新数组。
 
-文件大小
+---
 
-可执行文件通常相对更大
+### 2. 双指针思路
 
-可执行文件通常相对更小
+定义两个指针：
 
-多程序共享
+```text
+left  → 指向字符串开头
+right → 指向字符串末尾
+```
 
-每个程序可能各自包含一份库代码
+每次交换两个位置的字符：
 
-多个程序可以共享同一动态库
+```cpp
+swap(s[left], s[right]);
+```
 
-部署
+然后让两个指针向中间移动：
 
-相对直接
+```cpp
+++left;
+--right;
+```
 
-需要处理共享库搜索路径和版本
+当：
 
-更新
+```cpp
+left >= right
+```
 
-库变化后通常要重新链接程序
+说明所有字符都已经完成交换。
 
-ABI 兼容时可能只替换动态库
+---
 
-动态库不是“随便替换 .so 都能兼容”。真实工程还要考虑 ABI、接口兼容性、库版本和 SONAME。
+### 3. 完整代码
 
-八、LeetCode 344：反转字符串
+```cpp
+#include <iostream>
+#include <utility>
+#include <vector>
 
-题目要求原地反转 vector<char>，不能额外创建一个同等大小的数组。
+class Solution {
+public:
+    void reverseString(std::vector<char>& s) {
+        int left = 0;
+        int right = static_cast<int>(s.size()) - 1;
 
-核心思路是双指针：
-
-left 指向首字符。
-
-right 指向尾字符。
-
-交换 s[left] 与 s[right]。
-
-left 向右移动，right 向左移动。
-
-当 left >= right 时结束。
-
-核心代码：
-
-void reverseString(vector<char>& s) {
-    int left = 0;
-    int right = static_cast<int>(s.size()) - 1;
-
-    while (left < right) {
-        swap(s[left], s[right]);
-        ++left;
-        --right;
+        while (left < right) {
+            std::swap(s[left], s[right]);
+            ++left;
+            --right;
+        }
     }
+};
+
+int main() {
+    std::vector<char> s{'h', 'e', 'l', 'l', 'o'};
+
+    Solution solution;
+    solution.reverseString(s);
+
+    for (char ch : s) {
+        std::cout << ch << ' ';
+    }
+
+    std::cout << '\n';
+    return 0;
 }
+```
 
-为什么循环条件是 left < right
+运行结果：
 
-偶数长度字符串：两个指针交错后结束。
+```text
+o l l e h
+```
 
-奇数长度字符串：两个指针相遇时，中间字符不需要交换。
+---
 
-如果写成 left <= right，中间字符会与自身交换，虽然结果不一定错误，但多做了一次无意义操作。
+### 4. 为什么使用引用参数
 
-为什么使用引用参数
+函数参数为：
 
-vector<char>& s
+```cpp
+std::vector<char>& s
+```
 
-引用让函数直接修改原数组，也避免复制整个 vector，符合题目要求的原地操作。
+这里的 `&` 表示引用。
 
-复杂度
+使用引用有两个作用：
 
-时间复杂度：O(n)。
+1. 函数直接修改原来的 `vector`；
+2. 避免复制整个 `vector`。
 
-额外空间复杂度：O(1)。
+如果没有引用：
 
-九、易错点
+```cpp
+void reverseString(std::vector<char> s)
+```
 
-不要把 STATIC 和 SHARED 写反。
+函数得到的是原数组的副本，对副本的修改不会影响外部原数组。
 
-.a 是目标文件的归档，不是可以直接运行的程序。
+---
 
-ldd static_demo 出现系统 .so 很正常，判断本次实验是否静态链接，要看其中是否存在 libcalculator.so。
+### 5. 为什么条件是 `left < right`
 
-两个 CMake 目标不能重名，所以内部目标名使用 calculator_static、calculator_shared；输出文件名可以都设置成 calculator。
+循环条件写成：
 
-临时移走 .so 后一定要恢复，否则后续运行 shared_demo 会继续失败。
+```cpp
+while (left < right)
+```
 
-build/、.o、.a、.so 和可执行文件都是可重新生成的构建产物，不应上传 GitHub。
+原因是：
 
-反转字符串时，交换后必须同时执行 ++left 和 --right，否则循环可能无法结束。
+- 偶数长度：两个指针交错后结束；
+- 奇数长度：两个指针会在中间字符相遇；
+- 中间字符不需要和自己交换。
 
-s.size() 返回无符号类型；转换为 int 后再减一，代码意图更清楚。
+如果写成：
 
-十、今日总结
+```cpp
+left <= right
+```
 
-今天完成了从“源文件”到“库”再到“可执行程序”的完整工程实践。能够解释 .a 和 .so 的基本区别，能够使用 CMake 的 STATIC、SHARED、target_include_directories 和 target_link_libraries 构建两种库，也能用 file、ar、nm、ldd 和移走 .so 的实验验证判断，而不只是记忆概念。
+奇数长度时会让中间字符和自己交换一次。结果虽然不一定错误，但属于没有必要的操作。
 
-算法方面掌握了双指针原地反转字符串：通过左右指针交换并向中间收缩，在 O(n) 时间和 O(1) 额外空间内完成操作。
+---
+
+### 6. 复杂度分析
+
+时间复杂度：
+
+```text
+O(n)
+```
+
+因为每个字符最多参与一次交换。
+
+额外空间复杂度：
+
+```text
+O(1)
+```
+
+只使用了两个指针变量，没有创建随输入规模增长的新容器。
+
+---
+
+## 十三、今日易错点
+
+1. 不要把 CMake 中的 `STATIC` 和 `SHARED` 写反。
+2. `.a` 是静态库，不是可以直接运行的程序。
+3. `.so` 是动态库，也不能当作普通可执行文件直接运行。
+4. `add_library` 创建库，`add_executable` 创建可执行程序。
+5. CMake 内部目标名不能重复。
+6. `OUTPUT_NAME` 修改的是最终输出文件名，不是 CMake 目标名。
+7. `ldd static_demo` 中出现系统动态库是正常的。
+8. 判断本次静态链接是否成功，要看是否依赖 `libcalculator.so`。
+9. 临时移动 `.so` 后一定要恢复。
+10. `build/`、`.o`、`.a`、`.so` 和可执行文件不要上传 GitHub。
+11. 双指针交换后必须同时修改 `left` 和 `right`。
+12. `vector::size()` 返回无符号类型，转换成 `int` 后再减一更加清楚。
+13. 修改原数组时，函数参数需要使用引用。
+14. 循环条件应使用 `left < right`。
+
+---
+
+## 十四、今日总结
+
+今天完成了从源文件、目标文件、库到可执行程序的完整工程实践。
+
+我已经能够：
+
+- 理解为什么要把公共代码封装成库；
+- 区分静态库 `.a` 和动态库 `.so`；
+- 使用 CMake 的 `STATIC` 和 `SHARED` 创建库；
+- 使用 `target_include_directories` 配置头文件目录；
+- 使用 `target_link_libraries` 链接库；
+- 使用 `file`、`ar`、`nm` 和 `ldd` 检查构建结果；
+- 通过移走 `.so` 的实验验证动态库的运行时依赖；
+- 使用双指针原地反转字符串；
+- 分析算法的时间复杂度和空间复杂度。
+
+静态库和动态库是 Linux C++ 工程开发的重要基础，后续学习第三方库、项目构建和大型工程组织时都会继续使用这些知识。
