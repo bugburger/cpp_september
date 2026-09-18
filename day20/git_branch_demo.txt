@@ -1,4 +1,4 @@
 Day20 Git Branch Demo
 
-Version: main-base
-Message: Hello Git
+Version: feature
+Message: Hello from feature branch
